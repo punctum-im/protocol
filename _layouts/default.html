@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8"/>
+		<meta http-equiv="Content-Type" content="text/html">
+		<meta http-equiv="x-ua-compatible" content="ie=edge"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{{ site.title }}</title>
+		<link rel="stylesheet" href="{{ "/assets/style.css" | prepend: site.baseurl }}">
+		<link rel="icon" type="image/x-icon" href="/assets/favicon.ico"/>
+	</head>	
+<body>
+	<!--<div style="width: 64px; height: 64px; box-sizing: border-box; padding: 12px;"><div style="background-color: #52748c; border-top-right-radius: 10px; height: 100%; width: 100%;"></div></div>-->
+	<header>
+		<i>the</i>
+		<h1 style="margin-top:0.3em;">punctum protocol</h1>
+		<p>revision 1</p>
+	</header>
+	<main>
+		<article><div id="sentinel"></div>{{ content }}</article>
+	</main>
+	<footer>
+		<p>current revision: r1</p>
+		<ul>
+			<li><a href="https://github.com/FalsettoChat/protocol/graphs/contributors">contributors</a></li>
+			<li><a href="https://github.com/FalsettoChat/protocol">source</a></li>
+		</ul>
+	</footer>
+
+	<script>
+		/* API reference method markers */
+		const methods = document.querySelectorAll('h3 strong');
+		for (const method of methods) {
+			switch (method.textContent) {
+				case 'GET':
+					method.setAttribute('class', 'api-method method-get');
+					break;
+				case 'POST':
+					method.setAttribute('class', 'api-method method-post');
+					break;
+				case 'PATCH':
+					method.setAttribute('class', 'api-method method-patch');
+					break;
+				case 'DELETE':
+					method.setAttribute('class', 'api-method method-delete');
+					break;
+				default:
+					method.setAttribute('class', 'api-method method-invalid');
+			}
+			const endpoint = method.parentElement;
+			endpoint.setAttribute('class', 'api-endpoint');
+			values = endpoint.textContent.match(/\{(?:(?!\{|\})[\s\S])*\}/g);
+			if (values) {
+				for (const value of values) {
+					insert = `<span class="endpoint-value">${value}</span>`;
+					endpoint.innerHTML = endpoint.innerHTML.replace(RegExp(`${value}`, 'g'), insert);
+				}
+			}
+		}
+		/* API responses */
+		const responses = document.querySelectorAll('.language-plaintext');
+		for (const response of responses) {
+			switch (response.textContent) {
+				case '200 OK':
+					response.setAttribute('class', 'api-response response-ok');
+					break;
+				case '201 CREATED':
+					response.setAttribute('class', 'api-response response-created');
+					break;
+				case '400 BAD REQUEST':
+					response.setAttribute('class', 'api-response response-bad-request');
+					break;
+				case '401 UNAUTHORIZED':
+					response.setAttribute('class', 'api-response response-unauthorized');
+					break;
+				case '403 FORBIDDEN':
+					response.setAttribute('class', 'api-response response-forbidden');
+					break;
+				case '404 NOT FOUND':
+					response.setAttribute('class', 'api-response response-not-found');
+					break;
+				default:
+					response.setAttribute('class', 'language-plaintext highlighter-rouge');
+			}
+		}
+		/* Anchors */
+		const headings = document.querySelectorAll('h2,h3');
+		const linkContent = '#';
+		for (const heading of headings) {
+		    const linkIcon = document.createElement('a');
+			linkIcon.setAttribute('class', `anchor`);
+			linkIcon.setAttribute('aria-hidden', `true`);
+			linkIcon.setAttribute('title', `Link to ${heading.textContent}`);
+		    linkIcon.setAttribute('href', `#${heading.id}`);
+		    linkIcon.innerHTML = linkContent;
+		    heading.appendChild(linkIcon);
+		};
+		/* Fix jumping to older headers from later parts of the page */
+		function jumpPatch(link) {
+			if (link.hash) {
+				element = document.querySelector(link.hash)
+				element.style.position = "static";
+				element.removeProperty('position');
+				
+			}
+		}
+		for (link of document.querySelectorAll('a')) {
+			console.log(link)
+			link.addEventListener("click", jumpPatch(link))
+		}
+
+	</script>
+</body>
+</html>
