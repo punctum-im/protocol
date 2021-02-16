@@ -100,8 +100,8 @@
 			if (link.hash) {
 				element = document.querySelector(link.hash)
 				element.style.position = "static";
-				element.removeProperty('position');
-				
+				setTimeout(50)
+				element.style.position = "sticky";
 			}
 		}
 		for (link of document.querySelectorAll('a')) {

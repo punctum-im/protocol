@@ -19,7 +19,7 @@ layout: default
 
 **This section is non-normative.**
 
-punctum is a federated chat protocol with modern features. The main goal of the punctum project is to create a free and open chat platform with plenty of quality-of-life improvements.
+The Punctum protocol is a federated chat protocol with modern features. The main goal of the punctum.im project is to create a free and open chat platform with plenty of quality-of-life improvements.
 
 The main features of punctum include:
 
@@ -42,7 +42,7 @@ Additional note: all JSON fields that use "..." as the name are intended to be c
 
 ## Objects and IDs
 
-Most things in the protocol are **objects**.
+Most things, such as accounts, conferences, channels or messages, are **objects**.
 
 Every object is assigned an **ID**. This ID is the object's main identicator and is used to quickly locate and access the object with the given ID. IDs are unique; different objects cannot have the same ID. IDs MUST be strings and MUST NOT contain any characters that are not letters, numbers, dashes or underscores. Additionally, the following IDs MUST NOT be used:
 
@@ -77,6 +77,8 @@ Available object types, with explainations:
 * ``message`` - contains information about a message, such as its content or reactions.
 * ``role`` - contains information about a role, such as its name, color or members.
 * ``invite`` - contains information about an invite.
+* ``report`` - contains information about a report.
+* ``emoji`` - contains information about custom emoji.
 
 To get information about an object by ID, the following API endpoint may be used:
 
@@ -149,6 +151,70 @@ An example stash:
 }
 ```
 
+## Pings
+
+*Not to be confused with [mentions](#mentions).*
+
+Pings are short requests sent between a client and a server during client-server communication.
+
+Pings are *not** objects, and they do not have IDs. They have a ``type`` of ``ping``. Pings also have a ``ping_type`` variable, which contains the type of the ping.
+
+### Request pings
+
+Request pings are used to send information from a client to a server, and are equivalent to performing an API query. They are used in [client-server communication](#client-server-communication) and [federation](#federating-objects-and-actions-performed-on-objects). They have a ``ping_type`` of ``client_request`` and are sent over the client socket. They take three variables:
+
+* ``request_method`` - the method of the request (``GET``, ``POST``, ``PATCH``, ``DELETE`` + ``JOIN`` for invites only + ``BLOCK`` for accounts only + ``REACT`` for messages only + ``REPORT`` for objects that support [Reporting](#reporting-objects))
+* ``request_target_id`` - the ID to make changes to
+* ``request_data`` - the data to be sent with the request (required for ``POST`` and ``PATCH`` requests)
+
+In the case of request pings sent to the federationo inbox, ``JOIN``, ``BLOCK`` and ``REACT`` methods also require an additional variable, ``request_source_user``, which contains the remote ID of the account to perform the action on behalf of.
+
+**Example request ping:**
+
+```json
+{
+    "type": "ping",
+    "ping_type": "client_request",
+    "request_method": "PATCH",
+    "request_target_id": "example",
+    "request_data": {
+        "username": "Example Account"
+    }
+}
+```
+
+### Error pings
+
+To make diagnosing API errors easier, the API MUST return errors in the form of error pings.
+
+Error pings have a ``ping_type`` of ``error``. They are returned as a result of errors that occured while processing API endpoint queries. They contain information about an error: the error code (``error_code``, stored as a number) and a human-readable error description (``error``).
+
+**Example error ping:**
+
+```json
+{
+    "type": "ping",
+    "ping_type": "error",
+    "error_code": 2,
+    "error": "Missing data, or Content-Type is not application/json"
+}
+```
+
+#### List of error codes and corresponding HTTP response status codes
+
+* ``0`` - No error (unused) (``200 OK``)
+* ``1`` - Server-side error (``5xx``); clients MUST be able to tell that there's a server-side error from the HTTP response status code alone
+* ``2`` - Missing data, or Content-Type is not application/json (``400 BAD REQUEST``)
+* ``3`` - Not permitted to access object (``403 FORBIDDEN``)
+* ``4`` - Object not found (``404 NOT FOUND``)
+* ``5`` - Type of requested object is not supported by endpoint (for example, when a message is requested through the ``/api/v1/accounts`` endpoint) (``400 BAD REQUEST``)
+* ``6`` - Attempted to change non-rewritable variable (``400 BAD REQUEST``)
+* ``7`` - Missing required variable in provided data (``400 BAD REQUEST``)
+* ``8`` - Object does not belong to object (for example, when trying to use ``/api/v1/conferences/x/channels/y`` when the channel with the ID ``y`` belongs to another conference) (``400 BAD REQUEST``)
+* ``9`` - Object with the ID provided in a variable that takes an ID does not exist (``404 NOT FOUND``)
+* ``10`` - Object with the ID provided in a variable that takes an ID is not of the correct type for this variable (``400 BAD REQUEST``)
+* ``11`` - Too many objects provided (``400 BAD REQUEST``)
+
 ## Federation
 
 **Federation** is the ability to exchange information with other instances of software using the same protocol.
@@ -171,31 +237,19 @@ Objects recieved through federation get three new variables:
 
 For all federation-related queries and APIs, the remote ID MUST be used.
 
+### Federating objects and actions performed on objects
+
+The federation inbox accepts objects and stashes. When an object is sent to the inbox, it is added to the instance. If the sent object already exists on the target instance, the recieved object will be treated as an updated version of the object.
+
+The federation inbox uses [request pings](#request-pings) to represent actions performed on objects. For example, to federate the deletion of an object, the server would send a request ping with a ``request_type`` of ``DELETE``. Request pings are also used to add users to conferences (which is required for a subscription to said conference).
+
 ### Subscriptions
 
-Every account, conference and direct message channel can be subscribed to. Once an instance subscribes to the account, conference or direct message channel, any changes to it, its child objects or its dependencies will automatically be sent to the subscribed instance's inbox.
+Every account, conference and direct message channel can be subscribed to. Once an instance subscribes to the account, conference or direct message channel, any changes to it, its child objects (for example channels and messages) or its dependencies will automatically be sent to the subscribed instance's inbox.
 
-For accounts, the subscription API endpoint is:
+When any account is requested or when a conference or direct message channel is joined, it will automatically be subscribed to.
 
-```http
-POST /api/v1/federation/subscribe/{target_id}
-```
-
-For conferences, the instance is automatically subscribed to the conference if any user from said instance had joined it through an invite. The API endpoint for joining a remote conference by invite is:
-
-```http
-POST /api/v1/federation/join-conference-by-invite/{invite_id}
-```
-
-**Sent data:**
-
-```json
-{
-    "user_id": "our_user_id"
-}
-```
-
-Direct message channels don't have a subscription endpoint; the instance is automatically subscribed to the direct message channel if any user from that instance is added to it, and unsubscribed when no users from that instance are in it or it's deleted.
+To unsubscribe from an object, the ``/api/v1/federation/unsubscribe/<id>`` endpoint may be used.
 
 ### Stashing
 
@@ -312,7 +366,7 @@ We re-request the object from far-away.instance. This is done for two reasons:
 * to verify the integrity of the object;
 * and to make sure we're not blocked by far-away.instance.
 
-We save the object from far-away.instance and add the object's ID on remore.instance to ``known_ids``:
+We save the object from far-away.instance and add the object's ID on remote.instance to ``known_ids``:
 
 ```json
 {
@@ -330,7 +384,16 @@ Now that we have added all the objects the remote server has sent us, we can now
 
 ## Permission system
 
-A core feature of the punctum protocol is the permission system. Permissions are stored in permission maps and can be assigned to conference members, roles, channels and conferences.
+Permissions can be used to allow or deny access to certain features for conference members. They can be assigned to conference members, roles, channels and conferences.
+
+Conferences, channels and roles can have their own default permission sets. Permissions are applied in the following order:
+
+1. Conference
+2. Channel
+3. Role
+4. Conference member
+
+Where each permission set overrides the previous set.
 
 Permissions are stored as a number:
 
@@ -345,15 +408,15 @@ To calculate permissions, add all the numbers corresponding to the permissions y
 * 1 + 2 = 3 - ``11000``
 * 1 + 4 = 5 - ``10100``
 
-**TODO:** Is there a name for this kind of system? Write it down, and possibly direct users to better documentation.
+### Permission numbers
 
 * 1 - See channel
 * 2 - Read messages in/connect to channel
 * 4 - Send messages to/speak in channel
 * 8 - Edit and delete own messages
 * 16 - Pin own messages, pin or delete other users' messages
-* 32 - Modify channel information (name, description)
-* 64 - Delete channel
+* 32 - Create and modify invites
+* 64 - Modify channel information (name, description)
 * 128 - Change own nickname
 * 256 - Change other users' nicknames
 * 512 - Kick users
@@ -398,68 +461,9 @@ For remote communication, the client sends and recieves requests through a WebSo
 
 The endpoint for the WebSocket MUST require authentication.
 
-### Pings
+## Reporting objects
 
-*Not to be confused with [mentions](#mentions).*
-
-Pings are short requests sent between a client and a server during client-server communication.
-
-Pings are *not** objects, and they do not have IDs. They have a ``type`` of ``stash``. Pings also have a ``ping_type`` variable, which contains the type of the ping.
-
-#### Client request pings
-
-Client request pings are used to send information from a client to a server. They have a ``ping_type`` of ``client_request`` and are sent over the client socket. They take three variables:
-
-* ``request_method`` - the method of the request (``GET``, ``POST``, ``PATCH``, ``DELETE`` + ``JOIN`` for invites only + ``BLOCK`` for accounts only + ``REACT`` for messages only)
-* ``request_target_id`` - the ID to make changes to
-* ``request_data`` - the data to be sent with the request (required for ``POST`` and ``PATCH`` requests)
-
-**Example client request ping:**
-
-```json
-{
-    "type": "ping",
-    "ping_type": "client_request",
-    "request_method": "PATCH",
-    "request_target_id": "example",
-    "request_data": {
-        "username": "Example Account"
-    }
-}
-```
-
-## Returning information about API errors
-
-To make diagnosing API errors easier, the API MUST return errors in the form of error pings.
-
-Error pings have a ``type`` of ``error``. They are returned as a result of errors that occured while processing API endpoint queries. They contain information about an error: the error code (``error_code``, stored as a number) and a human-readable error description (``error``).
-
-Errors are NOT objects, and they do not have IDs.
-
-**Example error ping:**
-
-```json
-{
-    "type": "error",
-    "error_code": 2,
-    "error": "Missing data, or Content-Type is not application/json"
-}
-```
-
-### List of error codes and corresponding HTTP response status codes
-
-* ``0`` - No error (unused) (``200 OK``)
-* ``1`` - Server-side error (``5xx``); clients MUST be able to tell that there's a server-side error from the HTTP response status code alone
-* ``2`` - Missing data, or Content-Type is not application/json (``400 BAD REQUEST``)
-* ``3`` - Not permitted to access object (``403 FORBIDDEN``)
-* ``4`` - Object not found (``404 NOT FOUND``)
-* ``5`` - Type of requested object is not supported by endpoint (for example, when a message is requested through the ``/api/v1/accounts`` endpoint) (``400 BAD REQUEST``)
-* ``6`` - Attempted to change non-rewritable variable (``400 BAD REQUEST``)
-* ``7`` - Missing required variable in provided data (``400 BAD REQUEST``)
-* ``8`` - Object does not belong to object (for example, when trying to use ``/api/v1/conferences/x/channels/y`` when the channel with the ID ``y`` belongs to another conference) (``400 BAD REQUEST``)
-* ``9`` - Object with the ID provided in a variable that takes an ID does not exist (``404 NOT FOUND``)
-* ``10`` - Object with the ID provided in a variable that takes an ID is not of the correct type for this variable (``400 BAD REQUEST``)
-* ``11`` - Too many objects provided (``400 BAD REQUEST``)
+Objects can be reported to the instance admins by using the ``/api/v1/id/<id>/report`` endpoint.
 
 # Chapter 2. Object types
 
@@ -480,9 +484,9 @@ Every instance saves information about itself in an object with the ID of "0".
 
 | Key             | Value type | Required? | Require authentication?         | Read/write | Federate? | Notes                                                                                 |
 |-----------------|------------|-----------|---------------------------------|------------|-----------|---------------------------------------------------------------------------------------|
-| address          | string     | yes       | r: no; w: no                    | r          | yes       | Contains the domain name for the instance. Required for federation.  MUST NOT CHANGE. |
-| server_software  | string     | yes       | r: no; w: no                    | r          | yes       | Contains the name and version of the used server software.                            |
-| protocol_version | number     | yes       | r: no; w: no                    | r          | yes       | Contains the version of the protocol. For the current revision, this MUST be set to ``1``. |
+| address          | string     | yes       | r: no                          | r          | yes       | Contains the domain name for the instance. Required for federation.  MUST NOT CHANGE. |
+| server_software  | string     | yes       | r: no                          | r          | yes       | Contains the name and version of the used server software.                            |
+| protocol_version | number     | yes       | r: no                          | r          | yes       | Contains the version of the protocol. For the current revision, this MUST be set to ``1``. |
 | name             | string     | yes       | r: no; w: yes [instance:modify] | r[w]       | yes       | Contains the name of the server. This can be changed by an user.                      |
 | description      | string     | no        | r: no; w: yes [instance:modify] | r[w]       | yes       | Contains the description of the server. This can be changed by an user.     |
 {:.required-key-table}
@@ -500,11 +504,12 @@ Accounts can own conferences, direct message channels and messages.
 
 | Key             | Value type | Required?    | Require authentication?         | Read/write | Federate? | Notes                                                                       |
 |-----------------|------------|--------------|---------------------------------|------------|-----------|-----------------------------------------------------------------------------|
-| username        | string     | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Instance-wide username. There MUST NOT be two users with the same username. |
+| username        | string     | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Instance-wide username, used for friend requests and identification purposes. There MUST NOT be two users with the same username. This MUST NOT contain non-alphanumeric characters, but can contain dashes and underscores, and MUST NOT be longer than 128 characters. |
+| display_name    | string     | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Display name. Can contain non-alphanumeric characters. |
 | short_status    | number     | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Short status. 0 - offline, 1 - online, 2 - away, 3 - do not disturb         |
 | status          | string     | no           | r: no; w: yes [account:modify]  | rw         | yes       | User status.                                                                |
 | bio             | string     | no           | r: no; w: yes [account:modify]  | rw         | yes       | User bio. Hashtags can be taken as profile tags and used in search engines. |
-| index           | bool       | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Can the user be indexed in search results? MUST be ``false`` by default.    |
+| index_user      | bool       | yes          | r: no; w: yes [account:modify]  | rw         | yes       | Can the user be indexed in search results? MUST be ``false`` by default.    |
 | bot             | bool       | no           | r: no; w: yes [account:modify]  | rw         | yes       | Is the user a bot? See the Accounts > Bots section.                         |
 | bot_owner       | string     | if bot=true  | r: no; w: yes [account:modify]  | rw         | yes       | The bot's owner.                                                            |
 | friends   | list of IDs | no        | r: yes [user needs to be authenticated]         | r          | no        | Contains IDs of the users the account is friends with. This MUST be handled through friend requests, to prevent users from adding people to their friend list without their prior permission. |
@@ -532,7 +537,7 @@ A conference is a group comprising of any amount of text and voice channels. Use
 | description   | string      | no        | r: no; w: yes [xx3xx permissions] | rw         | yes       | Description of the conference.                                                                 |
 | icon          | string      | yes       | r: no; w: yes [xx3xx permissions] | rw         | yes       | URL of the conference's icon. Servers MUST provide a placeholder.                              |
 | owner         | ID          | yes       | r: no; w: yes [user needs to be authenticated and be the owner of the conference] | rw | yes | ID of the conference's owner. MUST be an account. Initially assigned at conference creation by the server. |
-| index         | bool        | yes       | r: no; w: yes [user needs to be owner] | rw    | yes       | Should the conference be indexed in search results? SHOULD default to ``false``.               |
+| index_conference | bool        | yes       | r: no; w: yes [user needs to be owner] | rw    | yes       | Should the conference be indexed in search results? SHOULD default to ``false``.               |
 | permissions   | string      | yes       | r: no; w: yes [xx3xx permissions] | rw         | yes       | Conference-wide permission set, stored as a permission map.                                    |
 | creation_date | string      | yes       | r: no                             | r          | yes       | Date of the conference's creation. Assigned by the server.                                     |
 | channels      | list of IDs | yes       | r: no                             | r          | yes       | List of IDs of channels present in the conference. Assigned by the server at channel creation. |
@@ -630,6 +635,7 @@ Message objects contain text messages.
 | attached_files  | list of strings | no   | r: no; w: yes [must be authenticated as the user who wrote the message] | rw         | yes       | List of files that have been attached to the message. Contains URLs to the files. Any further writes are counted as edits. |
 | reply_to        | ID          | no | r: no; w: yes [must be authenticated as the user who wrote the message] | rw | yes | ID of the message that this message is a reply to. |
 | replies         | list of IDs | no | r: no | r | yes | List of IDs of messages that are replies to this message |
+| embeds          | list of dicts | no | r: no; w: yes [must be authenticated as the user who wrote the message] | rw | yes | List containing embed dicts (see [Embeds](#embeds)). |
 {:.required-key-table}
 
 ### Formatting
@@ -700,10 +706,34 @@ Users can join a conference through an invite.
 
 | Key           | Value type | Required? | Require authentication?           | Read/write | Federate? | Notes                                                                                           |
 |---------------|------------|-----------|-----------------------------------|------------|-----------|-------------------------------------------------------------------------------------------------|
-| name          | string     | yes       | r: no; w: yes [xxx1x permissions] | rw         | yes       | Name of the role.                                                                               |
-| description   | string     | no        | r: no; w: yes [xxx1x permissions] | rw         | yes       | Short description of the role.                                                                  |
-| color         | string     | yes       | r: no; w: yes [xxx1x permissions] | rw         | yes       | Color of the role, in RGB ("R, G, B" (does not support alpha)). Servers MUST provide a default. |
-| permissions   | string     | no        | r: no; w: yes [xxx1x permissions] | rw         | yes       | Permissions for the role, as a permission map.                                                  |
+| name          | string     | yes       | r: no; w: yes [2048 (Modify and assign roles)] | rw         | yes       | Name of the role.                                                                               |
+| description   | string     | no        | r: no; w: yes [2048 (Modify and assign roles)] | rw         | yes       | Short description of the role.                                                                  |
+| color         | slist of numbers | no        | r: no; w: yes [2048 (Modify and assign roles)] | rw         | yes       | Color of the role, in RGB ([R, G, B]) (does not support alpha)). |
+| permissions   | string     | no        | r: no; w: yes [2048 (Modify and assign roles)] | rw         | yes       | Permissions for the role, as a permission map.                                                  |
+{:.required-key-table}
+
+## Report
+
+``"object_type": "report"``
+
+Contains information about a report.
+
+| Key           | Value type | Required? | Require authentication?           | Read/write | Federate? | Notes                                   |
+|---------------|------------|-----------|-----------------------------------|------------|-----------|-----------------------------------------|
+| target        | ID         | yes       | yes (must be an admin or the report's creator) | rw | yes  | Contains the ID of the reported object. |
+| note          | string     | no        | yes (must be an admin or the report's creator) | rw | yes  | Contains a note about the report. |
+{:.required-key-table}
+
+## Custom emoji
+
+``"object_type": "emoji"``
+
+Contains information about a custom emoji.
+
+| Key           | Value type | Required? | Require authentication?           | Read/write | Federate? | Notes                                   |
+|---------------|------------|-----------|-----------------------------------|------------|-----------|-----------------------------------------|
+| shortcode     | ID         | yes       | r: no; w: yes [8192 (Modify conference)]| rw | yes  | Contains the ID of the reported object. |
+| note          | string     | no        | yes (must be an admin or the report's creator) | rw | yes  | Contains a note about the report. |
 {:.required-key-table}
 
 # Chapter 3. API method reference
@@ -822,13 +852,26 @@ Users can join a conference through an invite.
 
 ## Authentication and clients
 
-### **POST** /api/v1/auth
+### /auth/sign_up
 
-Authentication endpoint. See the [Authentication](#authentication) section for implementation details.
+Sign-up page, provided by the server. See the [Authentication](#authentication) section for implementation details.
+
+### /auth/login
+
+Login page, provided by the server. See the [Authentication](#authentication) section for implementation details.
 
 ### /api/v1/client/socket
 
 Client websocket. See the [Client-server communication](#client-server-communication) section for implementation details.
+
+### /client
+
+Should redirect to a web client.
+
+**OAuth2 endpoints:**
+{:.separator-heading}
+
+### GET /auth/oauth2/
 
 ## Account endpoints
 
