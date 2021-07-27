@@ -517,14 +517,6 @@ Accounts can own conferences, direct message channels and messages.
 | joined_conferences | dict | yes | r: yes, w: yes [user needs to be authenticated] | rw | no | Contains key-value pairs for conferences that the user is a part of, where the key is the conference ID and the value is the conference member ID of this particular user. |
 {:.required-key-table}
 
-### Blocking
-
-Users can block other users.
-
-### Permissions
-
-what
-
 ## Conference
 
 ``"object_type": "conference"``
